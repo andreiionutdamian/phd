@@ -48,14 +48,40 @@ def CloudifierNetV1(input_shape,
   model = tf.keras.models.Model(tf_input, tf_out, name='CloudifierNetV1')
   return model
 
+def IncResBlock(input_shape):
+  tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
+  tf_x = tf_inp
+  tf_x = inc_res_block(tf_x, n_filters=256, name='inc_res_256')
+  return tf.keras.models.Model(tf_inp, tf_x, name='IncResBlock')
+
+def DSResBlockS(input_shape):
+  tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
+  tf_x = tf_inp
+  tf_x = shrink_block(tf_x, name='ds_block_shrink')
+  tf_x = ds_res_block(tf_x, n_filters=256, name='ds_res_256')
+  return tf.keras.models.Model(tf_inp, tf_x, name='DSResBlockS')
+
+def DSResBlock(input_shape):
+  tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
+  tf_x = tf_inp
+  tf_x = ds_res_block(tf_x, n_filters=256, name='ds_res_256')
+  return tf.keras.models.Model(tf_inp, tf_x, name='DSResBlock')
 
 
 if __name__ == '__main__':
   shape = (352, 352, 3)
   cloudifier_v1 = CloudifierNetV1(shape)
+  irblock = IncResBlock(shape)
+  dsblock1 = DSResBlock(shape)
+  dsblock2 = DSResBlockS(shape)
   
-  cloudifier_v1.summary()
+  models = [cloudifier_v1, irblock, dsblock1, dsblock2]
   
-  tf.keras.utils.plot_model(cloudifier_v1,to_file=cloudifier_v1.name+'.png',
-                            show_shapes=True,
-                            show_layer_names=True)
+  for model in models:
+    print("\n\n{}".format(model.name))
+    model.summary()
+    
+    tf.keras.utils.plot_model(model,to_file='img/'+model.name+'.png',
+                              show_shapes=True,
+                              show_layer_names=True)
+    
