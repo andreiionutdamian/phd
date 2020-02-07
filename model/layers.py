@@ -21,7 +21,8 @@ def conv2d_bn(x,
                                strides=strides,
                                padding=padding,
                                use_bias=use_bias,
-                               name=name)(x)
+                               name=name+'_c_k{}'.format(kernel_size)
+                               )(x)
     if not use_bias:
         bn_axis = 1 if tf.keras.backend.image_data_format() == 'channels_first' else 3
         bn_name = None if name is None else name + '_bn'
@@ -36,17 +37,33 @@ def conv2d_bn(x,
 def stem_block(tf_input):
   tf_x = tf_input
   tf_x = tf.keras.layers.ZeroPadding2D(padding=((1, 1), (1, 1)))(tf_x)
-
+  
   tf_x = tf.keras.layers.Conv2D(filters=64, kernel_size=3, strides=2, 
                                 use_bias=False, name='stem_c1')(tf_x)
   tf_x = tf.keras.layers.BatchNormalization(epsilon=1.001e-5, name='stem_bn1')(tf_x)
   tf_x = tf.keras.layers.Activation('relu', name='stem_relu1')(tf_x)
 
+
+  tf_x = tf.keras.layers.ZeroPadding2D(padding=((1, 1), (1, 1)))(tf_x)
   tf_x = tf.keras.layers.Conv2D(filters=64, kernel_size=3, strides=2, 
                                 use_bias=False, name='stem_c2')(tf_x)
   tf_x = tf.keras.layers.BatchNormalization(epsilon=1.001e-5, name='stem_bn2')(tf_x)
   tf_x = tf.keras.layers.Activation('relu', name='stem_relu2')(tf_x)
   return tf_x
+
+def shrink_block(tf_input, name='shrink', stride=2, kernel=3):
+  tf_x = tf_input
+  n_in_filters = tf.keras.backend.int_shape(tf_input)[-1]
+  tf_x = tf.keras.layers.ZeroPadding2D(padding=((1, 1), (1, 1)),
+                                       name=name+'_zpad')(tf_x)
+  tf_x = tf.keras.layers.Conv2D(filters=n_in_filters, kernel_size=kernel,
+                                strides=stride,
+                                padding='valid',
+                                use_bias=False, activation=None,
+                                name=name+'_cnv_k{}_s{}'.format(kernel, stride)
+                                )(tf_x)
+  return tf_x
+  
   
   
 def inc_res_block(tf_input, n_filters, name=''):
@@ -67,7 +84,7 @@ def inc_res_block(tf_input, n_filters, name=''):
                                use_bias=True, # no BN as a result
                                name=name+'_mixreshape')
   
-  tf_x = tf.keras.layers.add([tf_input, tf_mixed_reduced])
+  tf_x = tf.keras.layers.add([tf_input, tf_mixed_reduced], name=name+'_resid')
   return tf_x
   
   

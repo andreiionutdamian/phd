@@ -5,7 +5,7 @@ Created on Fri Feb  7 14:11:16 2020
 @author: Andrei
 """
 
-from model.layers import stem_block, inc_res_block, convert_to_output_map, ds_res_block
+from model.layers import stem_block, inc_res_block, convert_to_output_map, ds_res_block, shrink_block
 
 import tensorflow as tf
 
@@ -17,16 +17,24 @@ def CloudifierNetV1(input_shape,
   tf_input = tf.keras.layers.Input(input_shape, name='input')
   tf_x = tf_input
   tf_x = stem_block(tf_x)
+
+  lst_out_maps_names = ['stem']
+  lst_out_maps_generators = [tf_x]
+  
+  n_shrinks = 0
   
   for i,f in enumerate(inc_res_filters):
     name = 'ir_{}'.format(i+1)
     tf_x = inc_res_block(tf_x, n_filters=f, name=name)  
     
-  lst_out_maps_names = [name]
-  lst_out_maps_generators = [tf_x]
+  lst_out_maps_generators.append(tf_x)
+  lst_out_maps_names.append(name)
   
   for i,f in enumerate(ds_res_filters):
     name = 'dsr_{}'.format(i+1)
+    if n_shrinks < 3:
+      n_shrinks += 1
+      tf_x = shrink_block(tf_x, name='shrink_'+str(n_shrinks))    
     tf_x = ds_res_block(tf_x, n_filters=f, name=name)
     lst_out_maps_generators.append(tf_x)
     lst_out_maps_names.append(name)
