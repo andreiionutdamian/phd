@@ -37,7 +37,6 @@ def conv2d_bn(x,
 def stem_block(tf_input):
   tf_x = tf_input
   tf_x = tf.keras.layers.ZeroPadding2D(padding=((1, 1), (1, 1)))(tf_x)
-  
   tf_x = tf.keras.layers.Conv2D(filters=64, kernel_size=3, strides=2, 
                                 use_bias=False, name='stem_c1')(tf_x)
   tf_x = tf.keras.layers.BatchNormalization(epsilon=1.001e-5, name='stem_bn1')(tf_x)
@@ -66,7 +65,7 @@ def shrink_block(tf_input, name='shrink', stride=2, kernel=3):
   
   
   
-def inc_res_block(tf_input, n_filters, name=''):
+def inc_res_block(tf_input, n_filters, activation='relu', scale=1, name=''):
   # we assume channel last
   n_in_filters = tf.keras.backend.int_shape(tf_input)[-1]
   tf_b1 = conv2d_bn(tf_input, filters=n_filters, kernel_size=1, name=name+'_b1')
@@ -83,8 +82,16 @@ def inc_res_block(tf_input, n_filters, name=''):
                                kernel_size=1, activation=None,
                                use_bias=True, # no BN as a result
                                name=name+'_mixreshape')
-  
-  tf_x = tf.keras.layers.add([tf_input, tf_mixed_reduced], name=name+'_resid')
+  if scale != 1:
+    tf_x = scaled_residual(tf_x=tf_mixed_reduced, 
+                           tf_input=tf_input, 
+                           scale=scale, 
+                           name=name+'_res_scal')
+  else:
+    tf_x = tf.keras.layers.add([tf_input, tf_mixed_reduced], name=name+'_res')
+    
+  if activation is not None:
+    tf_x = tf.keras.layers.Activation(activation, name=name+'_blk_'+activation)(tf_x)
   return tf_x
   
   
@@ -96,6 +103,7 @@ def ds_res_block(tf_input, n_filters, n_layers=3, name=''):
     tf_residual = tf.keras.layers.Conv2D(filters=n_filters,
                                          kernel_size=1,
                                          padding='same',
+                                         name=name+'_resid_c2d_k1',
                                          use_bias=False,
                                          )(tf_input)
   else:
@@ -127,6 +135,15 @@ def convert_to_output_map(lst_inputs, output_shape, input_names=[]):
                                              name=name+'_trns_s'+str(stride))(tf_input)
     lst_outputs.append(tf_out)
   return lst_outputs
+
+
+def scaled_residual(tf_x, tf_input, scale, name=''):
+  tf_out = tf.keras.layers.Lambda(lambda inputs, scale: inputs[0] + inputs[1] * scale,
+                                  output_shape=tf.keras.backend.int_shape(tf_input)[1:],
+                                  arguments={'scale': scale},
+                                  name=name)([tf_input, tf_x])
+  return tf_out
+
 
   
   
