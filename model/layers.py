@@ -7,6 +7,7 @@ Created on Fri Feb  7 13:56:58 2020
 
 import tensorflow as tf
 
+
 def conv2d_bn(x,
               filters,
               kernel_size,
@@ -26,6 +27,7 @@ def conv2d_bn(x,
     if not use_bias:
         bn_axis = 1 if tf.keras.backend.image_data_format() == 'channels_first' else 3
         bn_name = None if name is None else name + '_bn'
+        # we can scale=False as the next layer usually scales (linear or relu)
         x = tf.keras.layers.BatchNormalization(axis=bn_axis,
                                       scale=False,
                                       name=bn_name)(x)
@@ -33,6 +35,7 @@ def conv2d_bn(x,
         ac_name = None if name is None else name + '_ac'
         x = tf.keras.layers.Activation(activation, name=ac_name)(x)
     return x
+
 
 def stem_block(tf_input):
   tf_x = tf_input
@@ -50,7 +53,10 @@ def stem_block(tf_input):
   tf_x = tf.keras.layers.Activation('relu', name='stem_relu2')(tf_x)
   return tf_x
 
-def shrink_block(tf_input, name='shrink', stride=2, kernel=3):
+
+def shrink_block(tf_input, name='shrink', stride=2, kernel=3, 
+                 use_bias=False,
+                 activation=None):
   tf_x = tf_input
   n_in_filters = tf.keras.backend.int_shape(tf_input)[-1]
   tf_x = tf.keras.layers.ZeroPadding2D(padding=((1, 1), (1, 1)),
@@ -58,10 +64,17 @@ def shrink_block(tf_input, name='shrink', stride=2, kernel=3):
   tf_x = tf.keras.layers.Conv2D(filters=n_in_filters, kernel_size=kernel,
                                 strides=stride,
                                 padding='valid',
-                                use_bias=False, activation=None,
+                                use_bias=use_bias, activation=None,
                                 name=name+'_cnv_k{}_s{}'.format(kernel, stride)
                                 )(tf_x)
+  if not use_bias:
+    tf_x = tf.keras.layers.BatchNormalization(epsilon=1.001e-5, 
+                                              name=name+'_bn')(tf_x)
+  if activation is not None:
+    tf_x = tf.keras.layers.Activation(activation=activation,
+                                      name=name+'_'+str(activation))(tf_x)
   return tf_x
+
   
   
   

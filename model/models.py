@@ -5,7 +5,13 @@ Created on Fri Feb  7 14:11:16 2020
 @author: Andrei
 """
 
-from model.layers import stem_block, inc_res_block, convert_to_output_map, ds_res_block, shrink_block
+from model.layers import stem_block
+from model.layers import inc_res_block
+from model.layers import convert_to_output_map
+from model.layers import ds_res_block
+from model.layers import shrink_block
+
+from model import efficientnet 
 
 import tensorflow as tf
 
@@ -52,36 +58,87 @@ def IncResBlock(input_shape):
   tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
   tf_x = tf_inp
   tf_x = inc_res_block(tf_x, n_filters=256, name='inc_res_256')
-  return tf.keras.models.Model(tf_inp, tf_x, name='IncResBlock')
+  return tf.keras.models.Model(tf_inp, tf_x, name='Block_01_IncRes')
 
 def DSResBlockS(input_shape):
   tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
   tf_x = tf_inp
   tf_x = shrink_block(tf_x, name='ds_block_shrink')
   tf_x = ds_res_block(tf_x, n_filters=256, name='ds_res_256')
-  return tf.keras.models.Model(tf_inp, tf_x, name='DSResBlockS')
+  return tf.keras.models.Model(tf_inp, tf_x, name='Block_02_ShrinkDepthwiseSep')
 
 def DSResBlock(input_shape):
   tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
   tf_x = tf_inp
   tf_x = ds_res_block(tf_x, n_filters=256, name='ds_res_256')
-  return tf.keras.models.Model(tf_inp, tf_x, name='DSResBlock')
+  return tf.keras.models.Model(tf_inp, tf_x, name='Block_03_DepthwiseSep')
+
+
+def StemBlock(input_shape):
+  tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
+  tf_x = tf_inp
+  tf_x = stem_block(tf_x)
+  return tf.keras.models.Model(tf_inp, tf_x, name='Block_00_Stem')
+
+def ShrinkBlock(input_shape):
+  tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
+  tf_x = tf_inp
+  tf_x = shrink_block(tf_x)
+  return tf.keras.models.Model(tf_inp, tf_x, name='Block_00_Stem')
+
+
+def EfficientBlock2(input_shape):  
+  args = {'kernel_size': 5, 'repeats': 3, 'filters_in': 80, 'filters_out': 112,
+          'expand_ratio': 6, 'id_skip': True, 'strides': 1, 'se_ratio': 0.25}
+  # drop_connect_rate: float, dropout rate at skip connections.          
+  drop_connect_rate = 0.2
+  blocks = 100
+  b = 50 # middle
+  drop_rate = drop_connect_rate * b / blocks 
+  tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
+  tf_x = tf_inp
+  for j in range(args.pop('repeats')):
+    tf_x = efficientnet.block(tf_x, drop_rate=drop_rate, name='midl_eff_blk_{}'.format(
+                                    j+1), 
+                              **args)
+  return tf.keras.models.Model(tf_inp, tf_x, name='Block_00_Stem')
 
 
 if __name__ == '__main__':
   shape = (352, 352, 3)
+  
+  
+  baselines = [
+      EfficientBlock2(shape),
+      efficientnet.EfficientNetB0(weights=None),
+      efficientnet.EfficientNetB3(weights=None),
+      efficientnet.EfficientNetB3(weights=None),
+      efficientnet.EfficientNetB5(weights=None),
+      efficientnet.EfficientNetB7(weights=None),
+      tf.keras.applications.DenseNet121(weights=None),
+      tf.keras.applications.Xception(weights=None),
+  ]
+  
+
   cloudifier_v1 = CloudifierNetV1(shape)
-  irblock = IncResBlock(shape)
-  dsblock1 = DSResBlock(shape)
-  dsblock2 = DSResBlockS(shape)
   
-  models = [cloudifier_v1, irblock, dsblock1, dsblock2]
+  cloudifier = [
+      cloudifier_v1,
+      StemBlock(shape),
+      ShrinkBlock(shape),
+      IncResBlock(shape),
+      DSResBlockS(shape),
+      DSResBlock(shape),
+  ]
   
-  for model in models:
-    print("\n\n{}".format(model.name))
-    model.summary()
+  names = [x.name for x in cloudifier] + ['base_' + x.name for x in baselines]
+  models = cloudifier + baselines
+  
+  for model, name in zip(models, names):
+    print("\n\n{}".format(name))
+    #model.summary()
     
-    tf.keras.utils.plot_model(model,to_file='img/'+model.name+'.png',
+    tf.keras.utils.plot_model(model,to_file='img/'+name+'.png',
                               show_shapes=True,
                               show_layer_names=True)
     
