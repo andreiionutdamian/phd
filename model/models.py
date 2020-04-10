@@ -7,7 +7,7 @@ Created on Fri Feb  7 14:11:16 2020
 
 from model.layers import stem_block
 from model.layers import inc_res_block
-from model.layers import convert_to_output_map
+from model.layers import direct_convert_to_output_map
 from model.layers import ds_res_block
 from model.layers import shrink_block
 
@@ -45,9 +45,9 @@ def CloudifierNetV1(input_shape,
     lst_out_maps_generators.append(tf_x)
     lst_out_maps_names.append(name)
 
-  lst_outmaps = convert_to_output_map(lst_out_maps_generators, 
-                                      output_shape=input_shape,
-                                      input_names=lst_out_maps_names)    
+  lst_outmaps = direct_convert_to_output_map(lst_out_maps_generators, 
+                                             output_shape=input_shape,
+                                             input_names=lst_out_maps_names)    
   tf_x = tf.keras.layers.concatenate(lst_outmaps)
   
   tf_out = tf.keras.layers.Dense(units=n_classes, activation='softmax', name='readout')(tf_x)
@@ -58,33 +58,48 @@ def IncResBlock(input_shape):
   tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
   tf_x = tf_inp
   tf_x = inc_res_block(tf_x, n_filters=256, name='inc_res_256')
-  return tf.keras.models.Model(tf_inp, tf_x, name='Block_01_IncRes')
+  return tf.keras.models.Model(tf_inp, tf_x, name='02_IncResBlock')
 
-def DSResBlockS(input_shape):
+def ShrinkDepthwiseSepRes(input_shape):
   tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
   tf_x = tf_inp
   tf_x = shrink_block(tf_x, name='ds_block_shrink')
   tf_x = ds_res_block(tf_x, n_filters=256, name='ds_res_256')
-  return tf.keras.models.Model(tf_inp, tf_x, name='Block_02_ShrinkDepthwiseSep')
+  return tf.keras.models.Model(tf_inp, tf_x, name='03_ShrinkDepthwiseSepRes')
 
-def DSResBlock(input_shape):
+def DepthwiseSepResBlock(input_shape):
   tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
   tf_x = tf_inp
   tf_x = ds_res_block(tf_x, n_filters=256, name='ds_res_256')
-  return tf.keras.models.Model(tf_inp, tf_x, name='Block_03_DepthwiseSep')
+  return tf.keras.models.Model(tf_inp, tf_x, name='04_DepthwiseSepResBlock')
 
 
 def StemBlock(input_shape):
   tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
   tf_x = tf_inp
   tf_x = stem_block(tf_x)
-  return tf.keras.models.Model(tf_inp, tf_x, name='Block_00_Stem')
+  return tf.keras.models.Model(tf_inp, tf_x, name='00_StemBlock')
+
 
 def ShrinkBlock(input_shape):
   tf_inp = tf.keras.layers.Input(input_shape,name='module_input')
   tf_x = tf_inp
   tf_x = shrink_block(tf_x)
-  return tf.keras.models.Model(tf_inp, tf_x, name='Block_00_Stem')
+  return tf.keras.models.Model(tf_inp, tf_x, name='01_ShrinkBlock')
+
+
+def UpscaleBlock(input_shape):
+  size = input_shape[-2]
+  filters = [64, 256, 512, 1024]
+  sizes = [size // (2**x) for x in range(2,6)]
+  shapes = [(s,s,f) for s,f in zip(sizes, filters)]  
+  inputs = [tf.keras.layers.Input(shapes[0], name='module_inp_1')] 
+  inputs = inputs + [tf.keras.layers.Input(s,name='module_inp_'+str(i)) for i,s in enumerate(shapes)]
+  tf_x = direct_convert_to_output_map(inputs, input_shape)
+  return tf.keras.models.Model(inputs, tf_x, name='05_UpscaleBlock')
+  
+  
+  
 
 
 def EfficientBlock2(input_shape):  
@@ -101,7 +116,7 @@ def EfficientBlock2(input_shape):
     tf_x = efficientnet.block(tf_x, drop_rate=drop_rate, name='midl_eff_blk_{}'.format(
                                     j+1), 
                               **args)
-  return tf.keras.models.Model(tf_inp, tf_x, name='Block_00_Stem')
+  return tf.keras.models.Model(tf_inp, tf_x, name='EfficientBlock2')
 
 
 if __name__ == '__main__':
@@ -117,6 +132,7 @@ if __name__ == '__main__':
       efficientnet.EfficientNetB7(weights=None),
       tf.keras.applications.DenseNet121(weights=None),
       tf.keras.applications.Xception(weights=None),
+      tf.keras.applications.MobileNetV2(weights=None)
   ]
   
 
@@ -127,8 +143,9 @@ if __name__ == '__main__':
       StemBlock(shape),
       ShrinkBlock(shape),
       IncResBlock(shape),
-      DSResBlockS(shape),
-      DSResBlock(shape),
+      ShrinkDepthwiseSepRes(shape),
+      DepthwiseSepResBlock(shape),
+      UpscaleBlock(shape),
   ]
   
   names = [x.name for x in cloudifier] + ['base_' + x.name for x in baselines]

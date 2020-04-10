@@ -17,24 +17,52 @@ def conv2d_bn(x,
               use_bias=False,
               name=None):
   
-    x = tf.keras.layers.Conv2D(filters,
-                               kernel_size,
-                               strides=strides,
-                               padding=padding,
-                               use_bias=use_bias,
-                               name=name+'_c_k{}'.format(kernel_size)
-                               )(x)
-    if not use_bias:
-        bn_axis = 1 if tf.keras.backend.image_data_format() == 'channels_first' else 3
-        bn_name = None if name is None else name + '_bn'
-        # we can scale=False as the next layer usually scales (linear or relu)
-        x = tf.keras.layers.BatchNormalization(axis=bn_axis,
-                                      scale=False,
-                                      name=bn_name)(x)
-    if activation is not None:
-        ac_name = None if name is None else name + '_ac'
-        x = tf.keras.layers.Activation(activation, name=ac_name)(x)
-    return x
+  x = tf.keras.layers.Conv2D(filters,
+                             kernel_size,
+                             strides=strides,
+                             padding=padding,
+                             use_bias=use_bias,
+                             name=name+'_c_k{}'.format(kernel_size)
+                             )(x)
+  if not use_bias:
+    bn_axis = 1 if tf.keras.backend.image_data_format() == 'channels_first' else 3
+    bn_name = None if name is None else name + '_bn'
+    # we can scale=False as the next layer usually scales (linear or relu)
+    x = tf.keras.layers.BatchNormalization(axis=bn_axis,
+                                  scale=False,
+                                  name=bn_name)(x)
+  if activation is not None:
+    ac_name = None if name is None else name + '_ac'
+    x = tf.keras.layers.Activation(activation, name=ac_name)(x)
+  return x
+
+def dsconv2d_bn(x,
+                filters,
+                kernel_size,
+                strides=1,
+                padding='same',
+                activation='relu',
+                use_bias=False,
+                name=None):
+  
+  x = tf.keras.layers.SeparableConv2D(filters,
+                                      kernel_size,
+                                      strides=strides,
+                                      padding=padding,
+                                      use_bias=use_bias,
+                                      name=name+'_f{}k{}'.format(filters, kernel_size)
+                                      )(x)
+  if not use_bias:
+    bn_axis = 1 if tf.keras.backend.image_data_format() == 'channels_first' else 3
+    bn_name = None if name is None else name + '_bn'
+    # we can scale=False as the next layer usually scales (linear or relu)
+    x = tf.keras.layers.BatchNormalization(axis=bn_axis,
+                                  scale=False,
+                                  name=bn_name)(x)
+  if activation is not None:
+    ac_name = None if name is None else name + '_ac'
+    x = tf.keras.layers.Activation(activation, name=ac_name)(x)
+  return x
 
 
 def stem_block(tf_input):
@@ -122,17 +150,19 @@ def ds_res_block(tf_input, n_filters, n_layers=3, name=''):
   else:
     tf_residual = tf_input
   for i in range(1, n_layers+1):
-    tf_x = tf.keras.layers.SeparableConv2D(n_filters, 3,
-                                           use_bias=False,
-                                           padding='same',
-                                           name=name+'_sc{}'.format(i))(tf_x)
-    tf_x = tf.keras.layers.BatchNormalization(name=name+'_bn{}'.format(i))(tf_x)
-    tf_x = tf.keras.layers.Activation('relu', name=name + '_relu{}'.format(i))(tf_x)
+    tf_x = dsconv2d_bn(tf_x, filters=n_filters,
+                       kernel_size=3,
+                       use_bias=False,
+                       padding='same',
+                       activation='relu',
+                       name=name+'_dsc{}'.format(i))
   tf_x = tf.keras.layers.add([tf_x, tf_residual], name=name+'_resid')
   return tf_x
 
+  
 
-def convert_to_output_map(lst_inputs, output_shape, input_names=[]):
+def direct_convert_to_output_map(lst_inputs, output_shape, input_names=[], 
+                                 activation='relu', post_conv=True):
   lst_outputs = []
   for i, tf_input in enumerate(lst_inputs):
     input_shape = tf.keras.backend.int_shape(tf_input)
@@ -141,11 +171,20 @@ def convert_to_output_map(lst_inputs, output_shape, input_names=[]):
     output_H = output_shape[0]
     stride = output_H // input_H
     f = input_shape[-1]
-    tf_out = tf.keras.layers.Conv2DTranspose(filters=f,
-                                             kernel_size=3,
-                                             strides=stride,
-                                             padding='valid',
-                                             name=name+'_trns_s'+str(stride))(tf_input)
+    tf_x = tf.keras.layers.Conv2DTranspose(filters=f,
+                                           kernel_size=3,
+                                           strides=stride,
+                                           padding='valid',
+                                           use_bias=False,
+                                           activation=None,
+                                           name=name+'_trns_s'+str(stride))(tf_input)
+    tf_x = tf.keras.layers.BatchNormalization(name=name+'_bn')(tf_x)
+    tf_x = tf.keras.layers.Activation(activation, name=name+'_'+activation)(tf_x)
+    if post_conv:
+      tf_x = dsconv2d_bn(tf_x, filters=f, kernel_size=3, strides=1,
+                         padding='same', activation='relu', use_bias=False,
+                         name=name+'_post_dsc')
+    tf_out = tf_x
     lst_outputs.append(tf_out)
   return lst_outputs
 
