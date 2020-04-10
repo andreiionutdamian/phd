@@ -1,3 +1,4 @@
-Andrei Damian  PhD documentation and source/scriptsphd
+# Artificial scene inference based on efficient parallel execution of directed acyclic tensor graphs
 
-phd
+### PhDc Andrei Ionut Damian, Sup. Prof. Nicolae Tapus
+
