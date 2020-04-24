@@ -2,3 +2,5 @@
 .spyproject/
 
 model/__pycache__/
+
+paper/_output/
