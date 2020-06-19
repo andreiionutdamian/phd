@@ -306,7 +306,8 @@ def MGUSC(input_shape):
     layer_config['name'] = name    
     return layer.__class__.from_config(layer_config)   
   
-  layer_activation = tf.keras.layers.Activation('relu', name='ReLU')
+  layer_activation_pre_bn = tf.keras.layers.Activation('relu', name='ReLU_pre_bn')
+  layer_activation_post_bn = tf.keras.layers.Activation('relu', name='ReLU_post_bn')
   bypass = _create_layer('bypass')
   bn_pre = tf.keras.layers.BatchNormalization()
   bn_pos = tf.keras.layers.BatchNormalization()    
@@ -339,9 +340,9 @@ def MGUSC(input_shape):
   inputs = tf.keras.layers.Input(input_shape, name='input')
   tf_bypass = bypass(inputs)
   tf_x = layer(inputs)
-  tf_x_act = layer_activation(tf_x)
+  tf_x_act = layer_activation_pre_bn(tf_x)
   
-  tf_x_bn_act = layer_activation(bn_pre(tf_x))
+  tf_x_bn_act = layer_activation_post_bn(bn_pre(tf_x))
   tf_x_act_bn = bn_pos(tf_x_act)
   tf_x_act_ln = ln_pos(tf_x_act)
   
@@ -376,14 +377,14 @@ if __name__ == '__main__':
   cloudifier_v1 = CloudifierNetV1(shape)
   
   cloudifier = [
-      UpscaleBlock(shape),
-      cloudifier_v0,
-      cloudifier_v1,
-      StemBlock(shape),
-      ShrinkBlock(shape),
-      IncResBlock(shape),
-      ShrinkDepthwiseSepRes(shape),
-      DepthwiseSepResBlock(shape),
+      # UpscaleBlock(shape),
+      # cloudifier_v0,
+      # cloudifier_v1,
+      # StemBlock(shape),
+      # ShrinkBlock(shape),
+      # IncResBlock(shape),
+      # ShrinkDepthwiseSepRes(shape),
+      # DepthwiseSepResBlock(shape),
       MGUSC(shape)
   ]
   
