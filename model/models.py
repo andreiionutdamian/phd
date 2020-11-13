@@ -329,8 +329,16 @@ def CloudifierNetV1(input_shape,
       )    
   tf_x = tf.keras.layers.concatenate(lst_outmaps)
   
-  tf_out = tf.keras.layers.Dense(units=n_classes, activation='softmax', name='readout')(tf_x)
-  model = tf.keras.models.Model(tf_input, tf_out, name='CloudifierNetV1' if model_name is None else model_name)
+  tf_out = tf.keras.layers.Dense(
+    units=n_classes, 
+    activation='softmax', 
+    name='readout',
+    )(tf_x)
+  model = tf.keras.models.Model(
+    tf_input, 
+    tf_out, 
+    name='CloudifierNetV1' if model_name is None else model_name
+    )
   return model
 
 
