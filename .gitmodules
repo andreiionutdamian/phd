@@ -1,0 +1,3 @@
+[submodule "cloudifiernet"]
+	path = cloudifiernet
+	url = https://github.com/lummetry/cloudifiernet
