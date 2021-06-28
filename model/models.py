@@ -10,6 +10,7 @@ from model.layers import inc_res_block
 from model.layers import direct_convert_to_output_map
 from model.layers import ds_res_block
 from model.layers import shrink_block
+from model.layers import conv2d_bn, scaled_residual
 
 from model import efficientnet 
 
@@ -149,6 +150,94 @@ class MultiGatedUnit(tf.keras.layers.Layer):
     cfg =  dict(list(base_config.items()) + list(config.items()))
     return cfg
   
+def direct_convert_to_output_map_MGU(lst_inputs, output_shape, input_names=[], 
+                                 activation='relu', post_conv=True):
+  lst_outputs = []
+  for i, tf_input in enumerate(lst_inputs):
+    input_shape = tf.keras.backend.int_shape(tf_input)
+    name = input_names[i] if len(input_names) > 0 else 'tra_{}'.format(i+1)
+    input_H = input_shape[-2]
+    output_H = output_shape[0]
+    stride = output_H // input_H
+    f = input_shape[-1]
+    tf_x = MultiGatedUnit(
+      tf.keras.layers.Conv2DTranspose(
+        filters=f,
+        kernel_size=3,
+        strides=stride,
+        padding='valid',
+        use_bias=False,
+        activation=None,
+        name=name+'_trns_s'+str(stride)),
+      name='MGU_trns_s{}_{}'.format(stride, i+1),
+      activation=activation,
+      )(tf_input)
+    if post_conv:
+      tf_x = MultiGatedUnit(
+        tf.keras.layers.SeparableConv2D(
+          filters=f,
+          kernel_size=3,
+          strides=1,
+          padding='same',
+          use_bias=False),
+      activation='relu',
+      name='MGU_post_dsc_{}'.format(i+1)
+      )(tf_x)
+      
+    tf_out = tf_x
+    lst_outputs.append(tf_out)
+  return lst_outputs
+  
+
+def inc_res_block_MGU(tf_input, n_filters, activation='relu', scale=1, name=''):
+  # we assume channel last
+  n_in_filters = tf.keras.backend.int_shape(tf_input)[-1]
+  tf_b1 = MultiGatedUnit(
+    tf.keras.layers.Conv2D(filters=n_filters, kernel_size=1, padding='same'), 
+    activation='relu',
+    name=name+'_MGU_b1'
+    )(tf_input)
+  
+  tf_b2 = MultiGatedUnit(
+    tf.keras.layers.Conv2D(filters=n_filters, kernel_size=1, padding='same'), 
+    activation='relu',
+    name=name+'_MGU_b21'
+    )(tf_input)
+  tf_b2 = MultiGatedUnit(
+    tf.keras.layers.Conv2D(filters=n_filters, kernel_size=3, padding='same'), 
+    activation='relu',
+    name=name+'_MGU_b22'
+    )(tf_b2)
+
+  tf_b3 = MultiGatedUnit(
+    tf.keras.layers.Conv2D(filters=n_filters, kernel_size=1, padding='same'), 
+    activation='relu',
+    name=name+'_MGU_b31'
+    )(tf_input)
+  tf_b3 = MultiGatedUnit(
+    tf.keras.layers.Conv2D(filters=n_filters, kernel_size=5, padding='same'), 
+    activation='relu',
+    name=name+'_MGU_b32'
+    )(tf_b3)
+  
+  
+  tf_mixed = tf.keras.layers.concatenate([tf_b1, tf_b2, tf_b3], name=name+'_mix')
+  
+  tf_mixed_reduced = conv2d_bn(tf_mixed, filters=n_in_filters,
+                               kernel_size=1, activation=None,
+                               use_bias=True, # no BN as a result
+                               name=name+'_mixreshape')
+  if scale != 1:
+    tf_x = scaled_residual(tf_x=tf_mixed_reduced, 
+                           tf_input=tf_input, 
+                           scale=scale, 
+                           name=name+'_res_scal')
+  else:
+    tf_x = tf.keras.layers.add([tf_input, tf_mixed_reduced], name=name+'_res')
+    
+  if activation is not None:
+    tf_x = tf.keras.layers.Activation(activation, name=name+'_blk_'+activation)(tf_x)
+  return tf_x
 
 
 def CloudifierNetV0(input_shape, 
@@ -192,7 +281,9 @@ def CloudifierNetV0(input_shape,
 def CloudifierNetV1(input_shape, 
                     inc_res_filters=[64, 128, 256], 
                     ds_res_filters=[256, 512, 1024],
-                    n_classes=30):
+                    n_classes=30,
+                    model_name=None,
+                    MGU=True):
   tf_input = tf.keras.layers.Input(input_shape, name='input')
   tf_x = tf_input
   tf_x = stem_block(tf_x)
@@ -203,8 +294,11 @@ def CloudifierNetV1(input_shape,
   n_shrinks = 0
   
   for i,f in enumerate(inc_res_filters):
-    name = 'ir_{}'.format(i+1)
-    tf_x = inc_res_block(tf_x, n_filters=f, name=name)  
+    name = 'irb{}'.format(i+1)
+    if MGU:
+      tf_x = inc_res_block_MGU(tf_x, n_filters=f, name=name)  
+    else:
+      tf_x = inc_res_block(tf_x, n_filters=f, name=name)  
     
   lst_out_maps_generators.append(tf_x)
   lst_out_maps_names.append(name)
@@ -216,19 +310,37 @@ def CloudifierNetV1(input_shape,
       tf_x = shrink_block(tf_x, name='shrink_'+str(n_shrinks))          
     tf_x = MultiGatedUnit(
         layer=tf.keras.layers.SeparableConv2D(f, 3, padding='same', name=name),
-        activation='relu'
+        activation='relu',
+        name='MGU_SC{}_{}'.format(f, i+1)
         )(tf_x)
     lst_out_maps_generators.append(tf_x)
     lst_out_maps_names.append(name)
-
-  lst_outmaps = direct_convert_to_output_map(lst_out_maps_generators, 
-                                             output_shape=input_shape,
-                                             input_names=lst_out_maps_names)    
+  if MGU:
+    lst_outmaps = direct_convert_to_output_map_MGU(
+      lst_out_maps_generators, 
+      output_shape=input_shape,
+      input_names=lst_out_maps_names
+      )    
+  else:
+    lst_outmaps = direct_convert_to_output_map(
+      lst_out_maps_generators, 
+      output_shape=input_shape,
+      input_names=lst_out_maps_names
+      )    
   tf_x = tf.keras.layers.concatenate(lst_outmaps)
   
-  tf_out = tf.keras.layers.Dense(units=n_classes, activation='softmax', name='readout')(tf_x)
-  model = tf.keras.models.Model(tf_input, tf_out, name='CloudifierNetV1')
+  tf_out = tf.keras.layers.Dense(
+    units=n_classes, 
+    activation='softmax', 
+    name='readout',
+    )(tf_x)
+  model = tf.keras.models.Model(
+    tf_input, 
+    tf_out, 
+    name='CloudifierNetV1' if model_name is None else model_name
+    )
   return model
+
 
 
 def IncResBlock(input_shape):
@@ -374,12 +486,14 @@ if __name__ == '__main__':
   
 
   cloudifier_v0 = CloudifierNetV0(shape)
-  cloudifier_v1 = CloudifierNetV1(shape)
+  cloudifier_v1 = CloudifierNetV1(shape, MGU=False, model_name='CloudifierNetV1_Standard')
+  cloudifier_mgu_v1 = CloudifierNetV1(shape, MGU=True, model_name='CloudifierNetV1_MGU')
   
   cloudifier = [
       # UpscaleBlock(shape),
       # cloudifier_v0,
-      # cloudifier_v1,
+      cloudifier_v1,
+      cloudifier_mgu_v1,
       # StemBlock(shape),
       # ShrinkBlock(shape),
       # IncResBlock(shape),
@@ -397,5 +511,7 @@ if __name__ == '__main__':
     
     tf.keras.utils.plot_model(model,to_file='img/'+name+'.png',
                               show_shapes=True,
-                              show_layer_names=True)
+                              show_layer_names=True,
+                              dpi=300
+                              )
     
